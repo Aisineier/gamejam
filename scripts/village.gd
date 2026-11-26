@@ -23,6 +23,13 @@ const PROJECTS := {
 }
 const MACHINE_COSTS := [500, 1200, 2500]
 const DAYS := 720
+const SAVE_FIELDS := [
+	"coins", "reputation", "labor", "day", "youth", "hens", "waiting_chicks",
+	"eggs_in_nest", "fed_chickens", "plots", "incubating", "pens", "stock",
+	"built", "machine_level", "auto_orders", "tourism_bonus", "irrigation",
+	"drought_until", "stream_days", "extra_risk", "dry_run", "monthly_dry_peak",
+	"tutorial", "pond_unlocked", "done", "event_queue", "current_event", "result", "journal",
+]
 const EVENTS := {
 	"eggs": ["鸡舍旁", "老陈", "老周，鸡蛋留三天能孵出小鸡，卖得贵！但要是运气不好，蛋就坏了。"],
 	"walk": ["菜地", "老陈", "菜种得不错，但去镇上走路得大半天，菜都蔫了。步行卖货每趟消耗 2 点劳力，只能卖到原价的九成。"],
@@ -89,6 +96,63 @@ func month() -> int:
 
 func date_label() -> String:
 	return "第%d年 %02d月 %02d日" % [1 + floori(float(month() - 1) / 12.0), 1 + (month() - 1) % 12, 1 + (day - 1) % 30]
+
+
+func save_state() -> Dictionary:
+	var state := {"rng_state": rng.state}
+	for field in SAVE_FIELDS:
+		state[field] = get(field)
+	return state.duplicate(true)
+
+
+func restore_state(state: Dictionary) -> bool:
+	if not state.get("rng_state") is int:
+		return false
+	var validated := {}
+	for field in SAVE_FIELDS:
+		var original: Variant = get(field)
+		var candidate: Variant = state.get(field)
+		if typeof(original) != typeof(candidate):
+			return false
+		if original is Array:
+			for item in candidate:
+				if typeof(item) != original.get_typed_builtin():
+					return false
+			var typed_copy: Array = original.duplicate()
+			typed_copy.assign(candidate)
+			validated[field] = typed_copy
+		else:
+			validated[field] = candidate
+	if not valid_state(validated):
+		return false
+	for field in SAVE_FIELDS:
+		set(field, validated[field])
+	rng.state = state["rng_state"]
+	return true
+
+
+func valid_state(state: Dictionary) -> bool:
+	if state["day"] < 1 or state["day"] > DAYS or state["plots"].size() != plots.size() or state["journal"].is_empty():
+		return false
+	if not state["result"] in ["", "S", "A", "B", "C"]:
+		return false
+	if not state["current_event"].is_empty() and not EVENTS.has(state["current_event"]):
+		return false
+	for event in state["event_queue"]:
+		if not EVENTS.has(event):
+			return false
+	for plot in state["plots"]:
+		if not plot.get("cleared") is bool or not plot.get("ready") is int or not plot.get("crop") is String:
+			return false
+		if not plot["crop"].is_empty() and not CROPS.has(plot["crop"]):
+			return false
+	for key in pens:
+		if not state["pens"].get(key) is int:
+			return false
+	for key in stock:
+		if not state["stock"].get(key) is int:
+			return false
+	return true
 
 
 func labor_limit() -> int:

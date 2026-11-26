@@ -2,7 +2,8 @@ extends Control
 
 const Village := preload("res://scripts/village.gd")
 const FarmView := preload("res://scripts/farm_view.gd")
-
+const Profile := preload("res://scripts/profile.gd")
+const GameAudio := preload("res://scripts/game_audio.gd")
 const InkPaper := preload("res://scripts/ink_paper.gd")
 const PrologueArt := preload("res://scripts/prologue_art.gd")
 const INK := "#273831"
@@ -32,10 +33,14 @@ var prologue: Control
 var prologue_page := -1
 var farm_window_mode := Window.MODE_WINDOWED
 var fullscreen_button: Button
+var game_audio := GameAudio.new()
+var save_status := ""
+var in_game := false
+var saved_game: Village
 
 
 func _ready() -> void:
-	font.font_names = PackedStringArray(["Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "PingFang SC"])
+	font.font_names = PackedStringArray(["Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "PingFang SC", "Arial"])
 	brush_font.font_names = PackedStringArray(["KaiTi", "STKaiti", "Kaiti SC", "SimSun", "Noto Serif CJK SC", "Microsoft YaHei UI"])
 	paper_texture = InkPaper.make_texture()
 	var village_theme := Theme.new()
@@ -52,7 +57,14 @@ func _ready() -> void:
 		village_theme.set_color(direction + "_pressed_icon_modulate", "SpinBox", Color(GREEN))
 		village_theme.set_color(direction + "_disabled_icon_modulate", "SpinBox", Color("#8d8574"))
 	theme = village_theme
-	start_prologue()
+	add_child(game_audio)
+	get_tree().auto_accept_quit = false
+	var game_data := Profile.read_game()
+	if not game_data.is_empty():
+		var candidate := Village.new()
+		if candidate.restore_state(game_data):
+			saved_game = candidate
+	show_menu()
 
 
 func box_style(fill: String, border: String, radius: int = 2) -> StyleBoxFlat:
@@ -123,12 +135,101 @@ func button(parent: Control, bounds: Rect2, title: String, action: Callable, acc
 	focus.set_border_width_all(2)
 	focus.set_expand_margin_all(2)
 	node.add_theme_stylebox_override("focus", focus)
+	node.pressed.connect(game_audio.click)
 	node.pressed.connect(action)
 	place(node, parent, bounds)
 	return node
 
 
+func show_menu() -> void:
+	close_modal()
+	clear_prologue_page()
+	in_game = false
+	game_audio.play_music("title")
+	replace_board()
+	var artwork := PrologueArt.new()
+	artwork.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	place(artwork, board, Rect2(0, 0, 1440, 900))
+	var cover := panel(board, Rect2(93, 159, 516, 582), "#f6eddaeb", "#615744")
+	panel(cover, Rect2(9, 9, 498, 564), "#ffffff00", "#b6a584")
+	panel(cover, Rect2(9, 9, 498, 4), INK, INK, 0)
+	panel(cover, Rect2(42, 48, 48, 49), CINNABAR, RED)
+	brush_label(cover, Rect2(42, 48, 48, 49), "穗", 31, PARCHMENT, HORIZONTAL_ALIGNMENT_CENTER)
+	brush_label(cover, Rect2(42, 111, 430, 92), "麦穗余晖", 65)
+	brush_label(cover, Rect2(45, 207, 426, 34), "河湾村 · 周伯的账本", 24, MUTED)
+	panel(cover, Rect2(44, 265, 428, 1), BORDER, BORDER, 0)
+	var next := button(cover, Rect2(44, 290, 428, 60), "继续游戏", continue_game, true, saved_game == null)
+	var start := button(cover, Rect2(44, 401, 428, 54), "开始游戏", confirm_new_game, saved_game == null)
+	var summary := "暂无存档" if saved_game == null else "%s  ·  %d 金币" % [saved_game.date_label(), saved_game.coins]
+	label(cover, Rect2(44, 355, 428, 31), summary, 16, MUTED)
+	button(cover, Rect2(44, 469, 428, 54), "关闭游戏", quit_game)
+	if saved_game != null:
+		next.grab_focus()
+	else:
+		start.grab_focus()
+
+
+func confirm_new_game() -> void:
+	if saved_game == null:
+		start_prologue()
+		return
+	var frame := modal("开始新游戏", "存档", 300)
+	paragraph(frame, Rect2(32, 122, 596, 68), "进入农场后，新游戏会替换当前存档。")
+	button(frame, Rect2(276, 220, 152, 44), "取消", close_modal).grab_focus()
+	button(frame, Rect2(442, 220, 186, 44), "开始新游戏", start_prologue, true)
+
+
+func continue_game() -> void:
+	if saved_game == null:
+		return
+	village = saved_game
+	farm_window_mode = get_window().mode
+	enter_farm()
+
+
+func write_save() -> bool:
+	if Profile.write_game(village.save_state()) != OK:
+		save_status = "存档写入失败"
+		return false
+	saved_game = village
+	save_status = "进度已保存"
+	return true
+
+
+func save_and_return() -> void:
+	if write_save():
+		show_menu()
+	else:
+		refresh()
+		show_pending_event()
+
+
+func quit_game() -> void:
+	if in_game and not write_save():
+		close_modal()
+		refresh()
+		show_pending_event()
+		return
+	get_tree().quit()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		quit_game()
+
+
+func replace_board() -> void:
+	if is_instance_valid(board):
+		remove_child(board)
+		board.queue_free()
+	board = Control.new()
+	place(board, self, Rect2(0, 0, 1440, 900))
+
+
 func start_prologue() -> void:
+	close_modal()
+	village = Village.new()
+	in_game = false
 	if is_instance_valid(board):
 		remove_child(board)
 		board.queue_free()
@@ -138,7 +239,8 @@ func start_prologue() -> void:
 	window.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_EXPAND
 	if DisplayServer.get_name() != "headless":
 		window.mode = Window.MODE_FULLSCREEN
-	show_prologue_page(-1)
+	game_audio.play_music("story")
+	show_prologue_page(0)
 
 
 func show_prologue_page(page: int) -> void:
@@ -152,13 +254,11 @@ func show_prologue_page(page: int) -> void:
 	print_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	prologue.add_child(print_art)
 	print_art.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var cover := page < 0
-	if not cover:
-		var page_surface := Control.new()
-		page_surface.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		page_surface.gui_input.connect(on_prologue_art_input)
-		prologue.add_child(page_surface)
-		page_surface.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var page_surface := Control.new()
+	page_surface.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	page_surface.gui_input.connect(on_prologue_art_input)
+	prologue.add_child(page_surface)
+	page_surface.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 	var skip := button(prologue, Rect2(0, 0, 137, 42), "跳过序章", enter_farm)
 	skip.set_anchors_preset(Control.PRESET_TOP_RIGHT)
@@ -170,8 +270,8 @@ func show_prologue_page(page: int) -> void:
 	fullscreen_button.tooltip_text = "也可以按 Esc 切换窗口和全屏。"
 	update_fullscreen_label()
 
-	var card_height := 250 if cover else 211
-	var card_width := 480 if cover else 1060
+	var card_height := 225
+	var card_width := 1060
 	var reader := panel(prologue, Rect2(0, 0, card_width, card_height), "#f6eddaef", "#665a45")
 	reader.mouse_filter = Control.MOUSE_FILTER_STOP
 	reader.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
@@ -181,18 +281,12 @@ func show_prologue_page(page: int) -> void:
 	reader.offset_bottom = -34
 	panel(reader, Rect2(8, 8, card_width - 16, card_height - 16), "#ffffff00", "#b6a584", 0)
 	panel(reader, Rect2(8, 8, card_width - 16, 3), "#465849", "#465849", 0)
-	if cover:
-		brush_label(reader, Rect2(33, 24, 416, 31), "河湾村", 24, RED)
-		brush_label(reader, Rect2(30, 51, 420, 85), "麦穗余晖", 69)
-		var play := button(reader, Rect2(32, 166, 202, 51), "开始剧情  →", advance_prologue, true)
-		play.grab_focus()
-	else:
-		brush_label(reader, Rect2(32, 20, 378, 28), "序章  %d / %d" % [page + 1, PROLOGUE.size()], 19, RED)
-		brush_label(reader, Rect2(30, 49, 955, 53), PROLOGUE[page][0], 42)
-		paragraph(reader, Rect2(33, 107, 986, 42), PROLOGUE[page][1], 19, INK)
-		label(reader, Rect2(33, 155, 410, 37), "点击画面继续", 14, MUTED)
-		var button_text := "进入河湾村  →" if page == PROLOGUE.size() - 1 else "继续剧情  →"
-		button(reader, Rect2(839, 151, 187, 45), button_text, advance_prologue, true).grab_focus()
+	brush_label(reader, Rect2(32, 20, 378, 28), "序章  %d / %d" % [page + 1, PROLOGUE.size()], 19, RED)
+	brush_label(reader, Rect2(30, 49, 955, 53), PROLOGUE[page][0], 42)
+	paragraph(reader, Rect2(33, 106, 986, 58), PROLOGUE[page][1], 19, INK)
+	label(reader, Rect2(33, 170, 410, 37), "点击画面继续", 14, MUTED)
+	var button_text := "进入河湾村  →" if page == PROLOGUE.size() - 1 else "继续剧情  →"
+	button(reader, Rect2(839, 166, 187, 45), button_text, advance_prologue, true).grab_focus()
 
 
 func clear_prologue_page() -> void:
@@ -204,6 +298,7 @@ func clear_prologue_page() -> void:
 
 func on_prologue_art_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		game_audio.click()
 		advance_prologue()
 
 
@@ -215,11 +310,15 @@ func advance_prologue() -> void:
 
 
 func enter_farm() -> void:
+	close_modal()
 	clear_prologue_page()
 	var window := get_window()
 	window.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
 	if DisplayServer.get_name() != "headless":
 		window.mode = farm_window_mode
+	in_game = true
+	game_audio.play_music("farm")
+	write_save()
 	refresh()
 	show_pending_event()
 
@@ -279,11 +378,7 @@ func paragraph(parent: Control, bounds: Rect2, copy: String, size_px: int = 17, 
 
 
 func refresh() -> void:
-	if is_instance_valid(board):
-		remove_child(board)
-		board.queue_free()
-	board = Control.new()
-	place(board, self, Rect2(0, 0, 1440, 900))
+	replace_board()
 	var paper := TextureRect.new()
 	paper.texture = paper_texture
 	paper.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -292,10 +387,13 @@ func refresh() -> void:
 	panel(board, Rect2(0, 0, 1440, 6), INK, INK, 0)
 	panel(board, Rect2(48, 31, 50, 52), CINNABAR, RED)
 	brush_label(board, Rect2(48, 30, 50, 52), "穗", 33, PARCHMENT, HORIZONTAL_ALIGNMENT_CENTER)
-	brush_label(board, Rect2(113, 16, 360, 60), "麦穗余晖", 50)
+	brush_label(board, Rect2(113, 16, 510, 60), "麦穗余晖", 50)
 	brush_label(board, Rect2(119, 76, 410, 22), "河湾村 · 周伯的账本", 18, MUTED)
-	button(board, Rect2(1137, 41, 101, 37), "村庄日志", show_journal)
-	button(board, Rect2(1249, 41, 143, 37), "如何经营", show_guide)
+	label(board, Rect2(619, 41, 214, 37), save_status, 14, RED if save_status == "存档写入失败" else MUTED, HORIZONTAL_ALIGNMENT_RIGHT)
+	button(board, Rect2(847, 41, 108, 37), "存档", manual_save)
+	button(board, Rect2(966, 41, 128, 37), "村庄日志", show_journal)
+	button(board, Rect2(1105, 41, 128, 37), "如何经营", show_guide)
+	button(board, Rect2(1244, 41, 148, 37), "返回主菜单", save_and_return)
 	metric(48, "村庄金库", str(village.coins), "建设、买种和饲养的资金", GOLD)
 	metric(389, "村民声望", "%d / 100" % village.reputation, "青年回村 %d 人" % village.youth, GREEN)
 	metric(730, "今日劳力", "%d / %d" % [village.labor, village.labor_limit()], "干旱：每日劳力 −3" if village.drought_until >= village.day else "次日恢复", RED if village.labor == 0 else INK)
@@ -359,6 +457,7 @@ func farm_panel() -> void:
 
 func on_plot_input(event: InputEvent, action: Callable) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		game_audio.click()
 		action.call()
 
 
@@ -523,7 +622,14 @@ func project_action(id: String) -> void:
 
 func toggle_auto_orders() -> void:
 	village.auto_orders = not village.auto_orders
+	write_save()
 	refresh()
+
+
+func manual_save() -> void:
+	write_save()
+	refresh()
+	show_pending_event()
 
 
 func show_guide() -> void:
@@ -559,6 +665,7 @@ func show_journal() -> void:
 func perform(action: Callable) -> void:
 	close_modal()
 	action.call()
+	write_save()
 	refresh()
 	show_pending_event()
 
@@ -609,10 +716,9 @@ func show_ending() -> void:
 	var frame := modal("%s · %s" % [village.result, ending[0]], "第 24 月末  /  河湾村", 327)
 	paragraph(frame, Rect2(32, 118, 596, 75), ending[1], 18, INK)
 	label(frame, Rect2(32, 200, 596, 30), "金币 %d  ·  声望 %d  ·  改造 %d 项  ·  青年 %d 人" % [village.coins, village.reputation, village.built.size(), village.youth], 15, MUTED)
+	button(frame, Rect2(283, 255, 152, 45), "返回主菜单", save_and_return)
 	button(frame, Rect2(450, 255, 178, 45), "重新经营  →", restart, true).grab_focus()
 
 
 func restart() -> void:
-	close_modal()
-	village = Village.new()
 	start_prologue()
