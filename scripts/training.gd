@@ -36,13 +36,16 @@ func show_step() -> void:
 	background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	main.place(background, board, Rect2(0, 0, 1440, 900))
-	main.brush_label(board, Rect2(48, 25, 620, 63), "新手教程", 48)
-	main.label(board, Rect2(50, 84, 842, 32), "用一块菜地练习。正式开局时使用初始资源。", 17, main.MUTED)
+	main.panel(board, Rect2(0, 0, 1440, 97), main.PINE, main.PINE, 0)
+	main.panel(board, Rect2(0, 96, 1440, 2), main.FINE_GOLD, main.FINE_GOLD, 0)
+	main.icon(board, Rect2(47, 22, 60, 60), "greens", "#e9cb87")
+	main.brush_label(board, Rect2(118, 8, 555, 60), "新手教程", 46, main.PARCHMENT)
+	main.label(board, Rect2(122, 64, 872, 23), "用一块菜地练习。正式开局时使用初始资源。", 16, "#e2d1a6")
 	main.button(board, Rect2(1215, 49, 178, 43), "返回农场" if from_farm else "跳过教程", main.finish_training.bind(from_farm))
-	main.metric(48, "练习日期", practice.date_label(), "快进会停在重要事项", main.INK)
-	main.metric(389, "练习金库", str(practice.coins), "播种花金币，卖菜赚金币", main.GOLD)
-	main.metric(730, "今日劳力", "%d / %d" % [practice.labor, practice.labor_limit()], "次日恢复", main.GREEN)
-	main.metric(1071, "仓库", "%d 菜  ·  %d 蛋" % [practice.stock["greens"], practice.stock["eggs"]], "收获或摸蛋后才能卖", main.INK)
+	main.metric(48, "练习日期", practice.date_label(), "快进会停在重要事项", main.INK, "calendar")
+	main.metric(389, "练习金库", str(practice.coins), "播种花金币，卖菜赚金币", main.GOLD, "coin")
+	main.metric(730, "今日劳力", "%d / %d" % [practice.labor, practice.labor_limit()], "次日恢复", main.GREEN, "labor")
+	main.metric(1071, "仓库", "%d 菜  ·  %d 蛋" % [practice.stock["greens"], practice.stock["eggs"]], "收获或摸蛋后才能卖", main.INK, "crate")
 
 	var field: Panel = main.panel(board, Rect2(48, 235, 936, 433))
 	main.section_heading(field, 936, "练习田")
@@ -62,6 +65,7 @@ func show_step() -> void:
 	var guide: Panel = main.panel(board, Rect2(1004, 235, 388, 433))
 	var finished := step == STEPS.size()
 	main.section_heading(guide, 388, "练习完成" if finished else "第 %d / %d 步" % [step + 1, STEPS.size()])
+	main.progress(guide, Rect2(18, 52, 353, 8), float(step) / STEPS.size())
 	if finished:
 		main.brush_label(guide, Rect2(19, 75, 350, 56), "接下来修车站", 33)
 		main.paragraph(guide, Rect2(19, 151, 350, 147), "先种菜、养鸡，靠卖货攒到 400 金币触发车站剧情。攒到 500 金币就能修好车站，之后卖货不再消耗劳力。", 18, main.INK)
@@ -72,9 +76,10 @@ func show_step() -> void:
 		main.paragraph(guide, Rect2(19, 151, 350, 147), instruction[1], 18, main.INK)
 		main.button(guide, Rect2(18, 337, 353, 57), instruction[2], advance, true).grab_focus()
 
-	var result: Panel = main.panel(board, Rect2(48, 687, 1344, 135), "#ecedda", main.BORDER)
-	main.section_heading(result, 1344, "操作结果")
-	main.label(result, Rect2(27, 54, 1289, 50), feedback, 20, main.GREEN)
+	var result: Panel = main.panel(board, Rect2(48, 687, 1344, 135), main.PINE, main.FINE_GOLD, 6)
+	main.brush_label(result, Rect2(26, 16, 1200, 39), "操作结果", 26, "#edce8d")
+	var change: Label = main.label(result, Rect2(26, 54, 1289, 50), feedback, 20, main.PARCHMENT)
+	change.create_tween().tween_property(change, "modulate:a", 1.0, 0.24).from(0.32)
 
 
 func advance() -> void:

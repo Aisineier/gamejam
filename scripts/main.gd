@@ -8,6 +8,7 @@ const InkPaper := preload("res://scripts/ink_paper.gd")
 const PrologueArt := preload("res://scripts/prologue_art.gd")
 const Story := preload("res://scripts/story_script.gd")
 const Training := preload("res://scripts/training.gd")
+const UiIcon := preload("res://scripts/ui_icon.gd")
 const INK := "#273831"
 const MUTED := "#554e40"
 const GOLD := "#78501d"
@@ -15,9 +16,12 @@ const GREEN := "#2f644c"
 const RED := "#923f30"
 const CINNABAR := "#a03e2d"
 const BORDER := "#a79c82"
-const PANEL := "#f7f0dfed"
+const PANEL := "#f8efdbef"
 const PARCHMENT := "#fff7e5"
-const WASH := "#eee4cb"
+const WASH := "#ede2c5"
+const PINE := "#30483d"
+const JADE_WASH := "#e4e9d1"
+const FINE_GOLD := "#b9945c"
 const PORTRAITS := {
 	"周伯": preload("res://portraits/zhou.png"),
 	"周小满": preload("res://portraits/xiaoman.png"),
@@ -43,6 +47,7 @@ var save_status := ""
 var in_game := false
 var saved_game: Village
 var training: Training
+var action_changes: Array[String] = []
 
 
 func _ready() -> void:
@@ -93,7 +98,12 @@ func place(node: Control, parent: Control, bounds: Rect2) -> void:
 func panel(parent: Control, bounds: Rect2, fill: String = PANEL, border: String = BORDER, radius: int = 2) -> Panel:
 	var node := Panel.new()
 	node.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	node.add_theme_stylebox_override("panel", box_style(fill, border, radius))
+	var surface := box_style(fill, border, radius)
+	if fill == PANEL:
+		surface.shadow_color = Color("#51473333")
+		surface.shadow_size = 3
+		surface.shadow_offset = Vector2(0, 2)
+	node.add_theme_stylebox_override("panel", surface)
 	place(node, parent, bounds)
 	return node
 
@@ -117,8 +127,22 @@ func brush_label(parent: Control, bounds: Rect2, value: String, size_px: int, ti
 
 
 func section_heading(parent: Control, width: int, title: String) -> void:
-	panel(parent, Rect2(17, 15, 3, 20), CINNABAR, CINNABAR, 0)
+	panel(parent, Rect2(15, 12, 4, 24), CINNABAR, CINNABAR, 0)
 	brush_label(parent, Rect2(28, 6, width - 45, 39), title, 26)
+
+
+func icon(parent: Control, bounds: Rect2, kind: String, pigment: String = PINE) -> void:
+	var graphic := UiIcon.new()
+	graphic.kind = kind
+	graphic.pigment = Color(pigment)
+	graphic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	place(graphic, parent, bounds)
+
+
+func progress(parent: Control, bounds: Rect2, ratio: float, pigment: String = GREEN) -> void:
+	panel(parent, bounds, "#d9c9a6", "#c8b896", 4)
+	if ratio > 0.0:
+		panel(parent, Rect2(bounds.position, Vector2(bounds.size.x * minf(1.0, ratio), bounds.size.y)), pigment, pigment, 4)
 
 
 func button(parent: Control, bounds: Rect2, title: String, action: Callable, accent: bool = false, disabled: bool = false) -> Button:
@@ -133,10 +157,12 @@ func button(parent: Control, bounds: Rect2, title: String, action: Callable, acc
 	node.add_theme_color_override("font_pressed_color", Color(text_color))
 	node.add_theme_color_override("font_focus_color", Color(text_color))
 	node.add_theme_color_override("font_disabled_color", Color("#645c4f"))
-	node.add_theme_stylebox_override("normal", box_style(CINNABAR if accent else "#f4ecd9", "#7e3024" if accent else "#8c876e"))
-	node.add_theme_stylebox_override("hover", box_style("#b04a35" if accent else "#e2e7d1", "#773023" if accent else GREEN))
-	node.add_theme_stylebox_override("pressed", box_style("#7b3024" if accent else "#dce1cb", INK))
-	node.add_theme_stylebox_override("disabled", box_style("#e7deca", "#b5aa91"))
+	var normal := box_style(CINNABAR if accent else "#f7edd7", "#733a29" if accent else "#a5926f", 5)
+	normal.border_width_bottom = 3
+	node.add_theme_stylebox_override("normal", normal)
+	node.add_theme_stylebox_override("hover", box_style("#b45037" if accent else "#edf0d9", "#773c29" if accent else GREEN, 5))
+	node.add_theme_stylebox_override("pressed", box_style("#793b2c" if accent else "#dce4c9", INK, 5))
+	node.add_theme_stylebox_override("disabled", box_style("#dfd6bf", "#b6a585", 5))
 	var focus := box_style("#ffffff00", "#5d715a")
 	focus.set_border_width_all(2)
 	focus.set_expand_margin_all(2)
@@ -156,19 +182,18 @@ func show_menu() -> void:
 	var artwork := PrologueArt.new()
 	artwork.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	place(artwork, board, Rect2(0, 0, 1440, 900))
-	var cover := panel(board, Rect2(93, 159, 516, 582), "#f6eddaeb", "#615744")
-	panel(cover, Rect2(9, 9, 498, 564), "#ffffff00", "#b6a584")
-	panel(cover, Rect2(9, 9, 498, 4), INK, INK, 0)
-	panel(cover, Rect2(42, 48, 48, 49), CINNABAR, RED)
-	brush_label(cover, Rect2(42, 48, 48, 49), "穗", 31, PARCHMENT, HORIZONTAL_ALIGNMENT_CENTER)
-	brush_label(cover, Rect2(42, 111, 430, 92), "麦穗余晖", 65)
-	brush_label(cover, Rect2(45, 207, 426, 34), "河湾村 · 周伯的账本", 24, MUTED)
-	panel(cover, Rect2(44, 265, 428, 1), BORDER, BORDER, 0)
-	var next := button(cover, Rect2(44, 290, 428, 60), "继续游戏", continue_game, true, saved_game == null)
-	var start := button(cover, Rect2(44, 401, 428, 54), "开始游戏", confirm_new_game, saved_game == null)
+	var cover := panel(board, Rect2(83, 108, 518, 676), "#293f36f4", "#a98c57", 5)
+	panel(cover, Rect2(10, 10, 498, 656), "#ffffff00", "#9a865e", 3)
+	panel(cover, Rect2(44, 48, 51, 51), CINNABAR, FINE_GOLD, 3)
+	icon(cover, Rect2(45, 49, 49, 49), "greens", "#f4d692")
+	brush_label(cover, Rect2(37, 114, 447, 112), "麦穗余晖", 82, PARCHMENT)
+	brush_label(cover, Rect2(45, 235, 428, 38), "河湾村 · 周伯的账本", 26, "#e0cfa7")
+	panel(cover, Rect2(44, 299, 428, 1), FINE_GOLD, FINE_GOLD, 0)
+	var next := button(cover, Rect2(44, 333, 428, 60), "继续游戏", continue_game, true, saved_game == null)
+	var start := button(cover, Rect2(44, 456, 428, 54), "开始游戏", confirm_new_game, saved_game == null)
 	var summary := "暂无存档" if saved_game == null else "%s  ·  %d 金币" % [saved_game.date_label(), saved_game.coins]
-	label(cover, Rect2(44, 355, 428, 31), summary, 16, MUTED)
-	button(cover, Rect2(44, 469, 428, 54), "关闭游戏", quit_game)
+	label(cover, Rect2(46, 400, 426, 33), summary, 16, "#decca2")
+	button(cover, Rect2(44, 530, 428, 48), "关闭游戏", quit_game)
 	if saved_game != null:
 		next.grab_focus()
 	else:
@@ -189,6 +214,7 @@ func continue_game() -> void:
 	if saved_game == null:
 		return
 	village = saved_game
+	action_changes.clear()
 	farm_window_mode = get_window().mode
 	enter_farm()
 
@@ -235,6 +261,7 @@ func replace_board() -> void:
 func start_prologue() -> void:
 	close_modal()
 	village = Village.new()
+	action_changes.clear()
 	in_game = false
 	if is_instance_valid(board):
 		remove_child(board)
@@ -311,19 +338,19 @@ func render_dialogue(page: int) -> void:
 		skip.offset_bottom = 68
 
 	var height := 252 if choosing else 223
-	var reader := panel(prologue, Rect2(0, 0, 1060, height), "#f6eddaef", "#665a45")
+	var reader := panel(prologue, Rect2(0, 0, 1060, height), "#f5ebd4fa", "#5d5943", 7)
 	reader.mouse_filter = Control.MOUSE_FILTER_STOP
 	reader.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	reader.offset_left = -530
 	reader.offset_right = 530
 	reader.offset_top = -height - 34
 	reader.offset_bottom = -34
-	panel(reader, Rect2(8, 8, 1044, height - 16), "#ffffff00", "#b6a584", 0)
-	panel(reader, Rect2(8, 8, 1044, 3), INK, INK, 0)
-	brush_label(reader, Rect2(35, 22, 953, 26), chapter, 20, RED)
+	panel(reader, Rect2(12, 12, 1036, height - 24), "#ffffff00", "#c3a878", 4)
+	panel(reader, Rect2(12, 12, 1036, 42), PINE, PINE, 3)
+	brush_label(reader, Rect2(35, 20, 804, 26), chapter, 20, "#f0dca5")
 	if not choosing:
-		label(reader, Rect2(879, 22, 145, 26), "%d / %d" % [page + 1, total], 14, MUTED, HORIZONTAL_ALIGNMENT_RIGHT)
-	brush_label(reader, Rect2(32, 50, 975, 45), speaker, 38)
+		label(reader, Rect2(879, 20, 145, 26), "%d / %d" % [page + 1, total], 14, PARCHMENT, HORIZONTAL_ALIGNMENT_RIGHT)
+	brush_label(reader, Rect2(34, 54, 971, 43), speaker, 34, RED)
 	paragraph(reader, Rect2(36, 103, 985, 70), line, 21, INK)
 	if choosing:
 		var entry: Array = Village.EVENTS[village.current_event]
@@ -489,11 +516,11 @@ func modal(title: String, tag: String, height: int) -> Panel:
 	var shade := ColorRect.new()
 	shade.color = Color(0.14, 0.18, 0.14, 0.67)
 	place(shade, overlay, Rect2(0, 0, 1440, 900))
-	var frame := panel(overlay, Rect2(390, (900 - height) / 2.0, 660, height), "#f8efd9", "#5b5d4b")
-	panel(frame, Rect2(8, 8, 644, height - 16), "#ffffff00", "#b9a88c", 0)
-	panel(frame, Rect2(8, 8, 644, 4), INK, INK, 0)
-	brush_label(frame, Rect2(32, 21, 596, 30), tag, 19, RED)
-	brush_label(frame, Rect2(32, 51, 596, 54), title, 43)
+	var frame := panel(overlay, Rect2(390, (900 - height) / 2.0, 660, height), "#fff3d9", "#76684e", 9)
+	panel(frame, Rect2(8, 8, 644, height - 16), "#ffffff00", "#beab80", 6)
+	panel(frame, Rect2(8, 8, 644, 88), PINE, "#756746", 6)
+	brush_label(frame, Rect2(32, 14, 596, 28), tag, 19, "#e4c589")
+	brush_label(frame, Rect2(32, 43, 596, 49), title, 36, PARCHMENT)
 	return frame
 
 
@@ -514,36 +541,46 @@ func refresh() -> void:
 	paper.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	paper.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	place(paper, board, Rect2(0, 0, 1440, 900))
-	panel(board, Rect2(0, 0, 1440, 6), INK, INK, 0)
-	panel(board, Rect2(48, 31, 50, 52), CINNABAR, RED)
-	brush_label(board, Rect2(48, 30, 50, 52), "穗", 33, PARCHMENT, HORIZONTAL_ALIGNMENT_CENTER)
-	brush_label(board, Rect2(113, 16, 510, 60), "麦穗余晖", 50)
-	brush_label(board, Rect2(119, 76, 410, 22), "河湾村 · 周伯的账本", 18, MUTED)
-	label(board, Rect2(619, 41, 214, 37), save_status, 14, RED if save_status == "存档写入失败" else MUTED, HORIZONTAL_ALIGNMENT_RIGHT)
+	panel(board, Rect2(0, 0, 1440, 97), PINE, PINE, 0)
+	panel(board, Rect2(0, 96, 1440, 2), FINE_GOLD, FINE_GOLD, 0)
+	panel(board, Rect2(48, 22, 53, 54), CINNABAR, FINE_GOLD, 4)
+	icon(board, Rect2(49, 23, 51, 52), "greens", "#f4d692")
+	brush_label(board, Rect2(119, 9, 500, 58), "麦穗余晖", 45, PARCHMENT)
+	label(board, Rect2(121, 66, 410, 23), "河湾村 · 周伯的账本", 15, "#d9c89e")
+	label(board, Rect2(619, 41, 214, 37), save_status, 14, "#f0af95" if save_status == "存档写入失败" else "#d9c89e", HORIZONTAL_ALIGNMENT_RIGHT)
 	button(board, Rect2(847, 41, 108, 37), "存档", manual_save)
 	button(board, Rect2(966, 41, 128, 37), "村庄日志", show_journal)
 	button(board, Rect2(1105, 41, 128, 37), "如何经营", show_guide)
 	button(board, Rect2(1244, 41, 148, 37), "返回主菜单", save_and_return)
-	metric(48, "村庄金库", str(village.coins), "建设、买种和饲养的资金", GOLD)
-	metric(389, "村民声望", "%d / 100" % village.reputation, "青年回村 %d 人" % village.youth, GREEN)
-	metric(730, "今日劳力", "%d / %d" % [village.labor, village.labor_limit()], "干旱：每日劳力 −3" if village.drought_until >= village.day else "次日恢复", RED if village.labor == 0 else INK)
+	metric(48, "村庄金库", str(village.coins), "建设、买种和饲养的资金", GOLD, "coin")
+	metric(389, "村民声望", "%d / 100" % village.reputation, "青年回村 %d 人" % village.youth, GREEN, "trust")
+	metric(730, "今日劳力", "%d / %d" % [village.labor, village.labor_limit()], "干旱：每日劳力 −3" if village.drought_until >= village.day else "次日恢复", RED if village.labor == 0 else INK, "labor")
 	var phase := "引导 · 修葺车站" if not village.built.has("station") else ("扩张 · 通车与增产" if village.month() < 13 else "冲刺 · 第 24 月结局评定")
-	metric(1071, "第 %d / 24 月" % village.month(), village.date_label(), phase, INK)
+	metric(1071, "第 %d / 24 月" % village.month(), village.date_label(), phase, INK, "calendar")
 	farm_panel()
 	operations_panel()
 	tutorial_panel()
-	panel(board, Rect2(48, 818, 1344, 1), BORDER, BORDER, 0)
-	label(board, Rect2(49, 837, 870, 36), village.journal[0], 14, MUTED)
-	var fast := button(board, Rect2(966, 834, 224, 43), "快进到下一事项  »", perform.bind(village.advance_to_next))
+	panel(board, Rect2(48, 812, 1344, 72), PINE, "#7e7250", 6)
+	label(board, Rect2(67, 818, 884, 28), village.journal[0], 14, "#f3e4bd")
+	if not action_changes.is_empty():
+		var result := HBoxContainer.new()
+		result.add_theme_constant_override("separation", 21)
+		place(result, board, Rect2(67, 846, 850, 28))
+		for change in action_changes:
+			label(result, Rect2(), change, 16, "#f4c7ad" if change.contains("−") else "#d6edaa")
+		result.create_tween().tween_property(result, "modulate:a", 1.0, 0.22).from(0.7)
+	var fast := button(board, Rect2(948, 826, 224, 43), "快进到下一事项  »", perform.bind(village.advance_to_next))
 	fast.tooltip_text = "最多快进 30 天。逐日结算作物、养殖、游客、电商和事件。遇到下一项重要事项时停止。"
-	button(board, Rect2(1203, 834, 189, 43), "结束今天  →", perform.bind(village.advance_day), true)
+	button(board, Rect2(1187, 826, 190, 43), "结束今天  →", perform.bind(village.advance_day), true)
 
 
-func metric(x: int, title: String, value: String, subtitle: String, tint: String) -> void:
-	var tile := panel(board, Rect2(x, 111, 321, 105))
-	label(tile, Rect2(16, 9, 287, 22), title, 14, MUTED)
-	brush_label(tile, Rect2(16, 31, 289, 38), value, 32, tint)
-	label(tile, Rect2(16, 71, 289, 23), subtitle, 14, MUTED)
+func metric(x: int, title: String, value: String, subtitle: String, tint: String, mark: String) -> void:
+	var tile := panel(board, Rect2(x, 111, 321, 105), PANEL, BORDER, 5)
+	panel(tile, Rect2(13, 20, 62, 62), WASH, "#ccb88f", 8)
+	icon(tile, Rect2(17, 24, 54, 54), mark, tint)
+	label(tile, Rect2(89, 9, 220, 22), title, 14, MUTED)
+	brush_label(tile, Rect2(88, 31, 226, 38), value, 29, tint)
+	label(tile, Rect2(89, 71, 220, 23), subtitle, 14, MUTED)
 
 
 func farm_panel() -> void:
@@ -573,9 +610,19 @@ func farm_panel() -> void:
 				title = "余 %d 天" % (plot["ready"] - village.day)
 				disabled = true
 		var x := 77 + index * 204
-		var plot_button := button(frame, Rect2(x, 352, 170, 33), title, action, ready, disabled)
+		var recommended: bool = village.tutorial == 0 and index == 0 and not plot["cleared"]
+		var plot_button := button(frame, Rect2(x, 352, 170, 33), title, action, ready or recommended, disabled)
 		plot_button.tooltip_text = detail
-		label(frame, Rect2(x, 394, 170, 26), detail, 14, MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		var crop: String = plot["crop"]
+		var planted := not crop.is_empty()
+		if planted:
+			var remaining: int = maxi(0, plot["ready"] - village.day)
+			var period: int = Village.CROPS[crop][2]
+			var sign := panel(frame, Rect2(x + 13, 246, 144, 38), "#f9edd0f4" if ready else "#f9edd0db", "#896442" if ready else "#8e8467", 5)
+			icon(sign, Rect2(5, 3, 32, 32), crop)
+			label(sign, Rect2(40, 2, 101, 24), "%s%s" % [detail, " · 成熟" if ready else ""], 13, RED if ready else INK)
+			progress(sign, Rect2(41, 27, 91, 4), 1.0 - float(remaining) / period, CINNABAR if ready else GREEN)
+		label(frame, Rect2(x, 394, 170, 26), "第 %d 块菜地" % (index + 1), 14, MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 		if not disabled:
 			var hit := Control.new()
 			hit.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -595,15 +642,18 @@ func operations_panel() -> void:
 	var frame := panel(board, Rect2(1004, 235, 388, 563))
 	section_heading(frame, 388, "仓库与经营")
 	panel(frame, Rect2(17, 54, 354, 77), WASH, BORDER)
-	brush_label(frame, Rect2(30, 59, 328, 28), village.transport(), 24)
-	label(frame, Rect2(30, 91, 328, 25), "时价 %d%%  ·  每趟 %d 劳力" % [village.sale_percent(), village.sale_effort()], 15, MUTED)
+	icon(frame, Rect2(28, 63, 56, 56), "crate")
+	brush_label(frame, Rect2(91, 59, 267, 28), village.transport(), 24)
+	label(frame, Rect2(91, 91, 267, 25), "时价 %d%%  ·  每趟 %d 劳力" % [village.sale_percent(), village.sale_effort()], 15, MUTED)
 	button(frame, Rect2(17, 143, 354, 46), "查看库存与售卖  →", show_sales, true, village.tutorial < 2)
 	panel(frame, Rect2(17, 208, 354, 1), BORDER, BORDER, 0)
-	brush_label(frame, Rect2(17, 223, 201, 36), "鸡舍与养殖", 25)
+	icon(frame, Rect2(15, 219, 39, 41), "egg")
+	brush_label(frame, Rect2(58, 223, 301, 36), "鸡舍与养殖", 25)
 	label(frame, Rect2(17, 260, 352, 23), "成年鸡 %d / 3  ·  鸡窝 %d 枚  ·  孵化 %d 枚" % [village.hens, village.eggs_in_nest, village.incubating.size()], 14, MUTED)
 	button(frame, Rect2(17, 294, 354, 44), "进入养殖场", show_animals)
 	panel(frame, Rect2(17, 357, 354, 1), BORDER, BORDER, 0)
-	brush_label(frame, Rect2(17, 372, 201, 36), "村落改造", 25)
+	icon(frame, Rect2(13, 370, 42, 40), "trust")
+	brush_label(frame, Rect2(58, 372, 301, 36), "村落改造", 25)
 	label(frame, Rect2(17, 415, 352, 22), "已完成 %d 项  ·  游客收入 %d / 天" % [village.built.size(), village.tourism_income()], 14, MUTED)
 	button(frame, Rect2(17, 448, 354, 44), "查看改造项目", show_projects)
 	var order_note := "物流暂停 %d 天" % village.stream_days if village.stream_days > 0 else ("自动出货已开启" if village.auto_orders else "自动出货已暂停")
@@ -621,31 +671,47 @@ func tutorial_panel() -> void:
 		goal = "攒够 500 金币修好车站，班车售卖免劳力。"
 	if village.built.has("station"):
 		goal = "第 24 月末评定结局。第 10 月起可解锁池塘观景台。" if not village.pond_unlocked else "提升声望和金库，经营旅游或电商，迎接青年回村。"
-	label(frame, Rect2(17, 52, 850, 34), goal, 17)
+	label(frame, Rect2(17, 46, 715, 32), goal, 16)
+	if not village.built.has("station"):
+		var target := 500 if village.done.has("station_goal") else 400
+		progress(frame, Rect2(18, 87, 538, 9), float(village.coins) / target, CINNABAR)
+		label(frame, Rect2(569, 78, 165, 26), "%d / %d 金币" % [village.coins, target], 14, GOLD)
+	else:
+		progress(frame, Rect2(18, 87, 538, 9), float(village.day) / Village.DAYS)
+		label(frame, Rect2(569, 78, 165, 26), "第 %d / 24 月" % village.month(), 14, GREEN)
 	button(frame, Rect2(743, 51, 176, 38), "结局达成条件", show_endings_guide)
 
 
 func show_seeds(index: int) -> void:
-	var frame := modal("选择种子", "菜地", 400)
-	var row := 0
+	var frame := modal("选择种子", "第 %d 块菜地" % (index + 1), 443)
+	var column := 0
 	for id in Village.CROPS:
 		var spec: Array = Village.CROPS[id]
-		var y := 112 + row * 69
-		label(frame, Rect2(33, y, 420, 26), "%s  ·  %d 金币  ·  %d 天" % [spec[0], spec[3], spec[2]], 17)
-		label(frame, Rect2(33, y + 28, 430, 19), "第 %d 月解锁  ·  产 %d 份  ·  基础售价 %d / 份" % [spec[1], spec[4], spec[5]], 13, MUTED)
-		button(frame, Rect2(492, y + 7, 136, 38), "播种", perform.bind(village.plant.bind(index, id)), true, village.month() < spec[1] or not village.can_pay(spec[3], 1))
-		row += 1
-	button(frame, Rect2(491, 337, 137, 39), "返回田野", close_modal).grab_focus()
+		var unlocked: bool = village.month() >= spec[1]
+		var card := panel(frame, Rect2(30 + column * 201, 121, 195, 227), JADE_WASH if unlocked else WASH, BORDER, 7)
+		icon(card, Rect2(65, 8, 64, 64), id)
+		brush_label(card, Rect2(9, 69, 177, 33), spec[0], 29, INK, HORIZONTAL_ALIGNMENT_CENTER)
+		label(card, Rect2(9, 104, 177, 24), "%d 天成熟  ·  收成 %d 份" % [spec[2], spec[4]], 14, MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		label(card, Rect2(9, 129, 177, 23), "基准售价 %d 金币 / 份" % spec[5], 13, MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		label(card, Rect2(9, 154, 177, 23), "%d 金币  ·  1 劳力" % spec[3], 14, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+		var sow := button(card, Rect2(14, 181, 167, 36), "播种" if unlocked else "第 %d 月解锁" % spec[1], perform.bind(village.plant.bind(index, id)), unlocked, not unlocked or not village.can_pay(spec[3], 1))
+		if unlocked and sow.disabled:
+			sow.tooltip_text = "需要 %d 金币和 1 点劳力。" % spec[3]
+		column += 1
+	button(frame, Rect2(491, 373, 137, 40), "返回田野", close_modal).grab_focus()
 
 
 func show_sales() -> void:
 	var frame := modal("查看库存与售卖", village.transport(), 723)
-	label(frame, Rect2(32, 105, 596, 28), "时价 %d%%  ·  每笔消耗 %d 劳力" % [village.sale_percent(), village.sale_effort()], 15, MUTED)
+	panel(frame, Rect2(31, 106, 596, 30), JADE_WASH, "#acb08a", 4)
+	label(frame, Rect2(42, 107, 572, 28), "时价 %d%%  ·  每笔消耗 %d 劳力" % [village.sale_percent(), village.sale_effort()], 15, INK)
 	var row := 0
 	for id in Village.PRODUCT_NAMES:
 		var y := 145 + row * 54
-		panel(frame, Rect2(32, y + 49, 596, 1), BORDER, BORDER, 0)
-		label(frame, Rect2(32, y, 197, 46), "%s × %d" % [Village.PRODUCT_NAMES[id], village.amount(id)], 17)
+		if row % 2 == 0:
+			panel(frame, Rect2(31, y + 1, 597, 48), "#f0e6ca", "#e7dabb", 4)
+		icon(frame, Rect2(37, y + 5, 38, 38), id if Village.CROPS.has(id) else ("egg" if id in ["eggs", "bad_egg", "chicken"] else "crate"))
+		label(frame, Rect2(83, y, 146, 46), "%s × %d" % [Village.PRODUCT_NAMES[id], village.amount(id)], 17)
 		label(frame, Rect2(235, y, 218, 46), "基准单价 %d 金币" % village.base_price(id), 14, MUTED)
 		var quantity: int = village.amount(id)
 		var disabled := quantity == 0 or village.labor < village.sale_effort()
@@ -656,6 +722,7 @@ func show_sales() -> void:
 		else:
 			button(frame, Rect2(487, y + 6, 141, 35), "选择数量", show_sell_quantity.bind(id), false, disabled)
 		row += 1
+	label(frame, Rect2(32, 657, 440, 39), "  ·  ".join(action_changes), 13, GREEN)
 	button(frame, Rect2(481, 657, 147, 41), "返回村庄", close_modal).grab_focus()
 
 
@@ -669,7 +736,8 @@ func show_sell_quantity(id: String) -> void:
 	quantity.update_on_text_changed = true
 	place(quantity, frame, Rect2(32, 122, 138, 41))
 	button(frame, Rect2(183, 122, 99, 41), "全部", func() -> void: quantity.value = quantity.max_value)
-	var summary := label(frame, Rect2(32, 184, 596, 34), "", 17, GREEN)
+	panel(frame, Rect2(32, 179, 596, 51), JADE_WASH, "#a4b18b", 5)
+	var summary := label(frame, Rect2(46, 185, 567, 38), "", 18, GREEN)
 	quantity.value_changed.connect(update_sale_summary.bind(id, summary))
 	update_sale_summary(1, id, summary)
 	button(frame, Rect2(326, 254, 125, 43), "返回库存", show_sales)
@@ -691,7 +759,9 @@ func quick_sell(id: String, quantity: int) -> void:
 
 func show_animals() -> void:
 	var frame := modal("鸡舍与养殖", "河湾村", 571)
-	label(frame, Rect2(32, 106, 596, 32), "成年鸡 %d / 3  ·  鸡窝 %d 枚  ·  孵化中 %d 枚" % [village.hens, village.eggs_in_nest, village.incubating.size()], 17)
+	panel(frame, Rect2(32, 107, 596, 32), JADE_WASH, "#acb08a", 5)
+	icon(frame, Rect2(37, 107, 34, 31), "egg")
+	label(frame, Rect2(75, 107, 539, 32), "成年鸡 %d / 3  ·  鸡窝 %d 枚  ·  孵化中 %d 枚" % [village.hens, village.eggs_in_nest, village.incubating.size()], 17)
 	label(frame, Rect2(32, 140, 596, 24), "每天喂一次。摸蛋入仓，或留蛋 3 天，有 65% 几率孵出小鸡。", 15, MUTED)
 	var chick_note := "满栏时，新孵出的小鸡等有空位再补入。"
 	if not village.incubating.is_empty():
@@ -706,9 +776,10 @@ func show_animals() -> void:
 	for id in Village.LIVESTOCK:
 		var spec: Array = Village.LIVESTOCK[id]
 		var y := 264 + row * 73
-		panel(frame, Rect2(32, y, 596, 1), BORDER, BORDER, 0)
-		label(frame, Rect2(32, y + 5, 395, 25), "养%s  ·  %d 金币  ·  %d 天" % [spec[0], spec[3], spec[2]], 16)
-		label(frame, Rect2(32, y + 33, 420, 22), "%d 月解锁  ·  产量 %d  ·  基础售价 %d" % [spec[1], spec[4], spec[5]], 13, MUTED)
+		panel(frame, Rect2(31, y, 597, 61), WASH if row % 2 == 0 else "#f7edd7", "#d6c4a0", 5)
+		icon(frame, Rect2(40, y + 8, 42, 42), "crate")
+		label(frame, Rect2(89, y + 5, 351, 25), "养%s  ·  %d 金币  ·  %d 天" % [spec[0], spec[3], spec[2]], 16)
+		label(frame, Rect2(89, y + 33, 365, 22), "%d 月解锁  ·  产量 %d  ·  基础售价 %d" % [spec[1], spec[4], spec[5]], 13, MUTED)
 		var text := "余 %d 天" % (village.pens[id] - village.day) if village.pens[id] != 0 else "开始饲养"
 		button(frame, Rect2(478, y + 12, 150, 37), text, animal_action.bind(village.start_livestock.bind(id)), false, village.month() < spec[1] or village.pens[id] != 0 or not village.can_pay(spec[3], 1))
 		row += 1
@@ -727,9 +798,10 @@ func show_projects() -> void:
 	for id in Village.PROJECTS:
 		var spec: Array = Village.PROJECTS[id]
 		var y := 110 + row * 65
-		panel(frame, Rect2(32, y + 59, 596, 1), BORDER, BORDER, 0)
-		label(frame, Rect2(32, y, 410, 27), "%s  %d / 3" % [spec[0], village.machine_level] if id == "machine" else spec[0], 17)
-		label(frame, Rect2(32, y + 30, 411, 20), spec[3], 14, MUTED)
+		panel(frame, Rect2(32, y, 596, 59), JADE_WASH if village.built.has(id) else WASH, "#d1bd96", 5)
+		icon(frame, Rect2(39, y + 10, 38, 39), "trust" if id in ["station", "square", "pond"] else "labor")
+		label(frame, Rect2(84, y + 3, 350, 26), "%s  %d / 3" % [spec[0], village.machine_level] if id == "machine" else spec[0], 17)
+		label(frame, Rect2(84, y + 32, 350, 20), spec[3], 14, MUTED)
 		var text := "%d 金币" % village.project_cost(id)
 		if int(spec[2]) > 0:
 			text += " · %d 劳力" % spec[2]
@@ -770,9 +842,19 @@ func show_guide() -> void:
 
 
 func show_endings_guide() -> void:
-	var frame := modal("四种结局", "第 24 月末评定", 430)
-	paragraph(frame, Rect2(32, 120, 596, 220), "S 圆满 · 15,000 金币、60 声望、3 项改造，且开通电商或有 2 名青年回村。\n\nA 小康 · 8,000 金币、40 声望、2 项改造，且班车通车并开启旅游或电商。\n\nB 维持 · 3,000 金币、20 声望。\n\nC 遗憾 · 未达到以上结局条件。", 16, INK)
-	button(frame, Rect2(481, 366, 147, 41), "返回村庄", close_modal).grab_focus()
+	var frame := modal("四种结局", "第 24 月末评定", 486)
+	var outcomes := [
+		["S · 圆满", "15,000 金币、60 声望、3 项改造。另需开通电商或 2 名青年回村。"],
+		["A · 小康", "8,000 金币、40 声望、2 项改造。另需通车并开启旅游或电商。"],
+		["B · 维持", "3,000 金币、20 声望。"],
+		["C · 遗憾", "未达到以上结局条件。"],
+	]
+	for row in outcomes.size():
+		var y := 113 + row * 70
+		var card := panel(frame, Rect2(31, y, 597, 61), JADE_WASH if row < 2 else WASH, BORDER, 5)
+		brush_label(card, Rect2(13, 8, 109, 45), outcomes[row][0], 21, RED if row == 0 else GREEN)
+		paragraph(card, Rect2(132, 7, 451, 49), outcomes[row][1], 15, INK)
+	button(frame, Rect2(481, 415, 147, 41), "返回村庄", close_modal).grab_focus()
 
 
 func show_journal() -> void:
@@ -795,10 +877,29 @@ func show_journal() -> void:
 
 func perform(action: Callable) -> void:
 	close_modal()
+	var counts := resource_counts()
+	var resolving_scene := not village.current_event.is_empty()
 	action.call()
+	var changes: Array[String] = []
+	var updated := resource_counts()
+	for resource in updated:
+		var difference: int = updated[resource] - counts[resource]
+		if difference != 0:
+			changes.append("%s %s%d" % [resource, "+" if difference > 0 else "−", absi(difference)])
+		if changes.size() == 5:
+			break
+	if not changes.is_empty() or not resolving_scene:
+		action_changes = changes
 	write_save()
 	refresh()
 	show_pending_event()
+
+
+func resource_counts() -> Dictionary:
+	var counts := {"金币": village.coins, "劳力": village.labor, "声望": village.reputation, "鸡窝": village.eggs_in_nest}
+	for id in Village.PRODUCT_NAMES:
+		counts[Village.PRODUCT_NAMES[id]] = village.amount(id)
+	return counts
 
 
 func show_pending_event() -> void:
