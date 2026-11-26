@@ -6,6 +6,8 @@ const Profile := preload("res://scripts/profile.gd")
 const GameAudio := preload("res://scripts/game_audio.gd")
 const InkPaper := preload("res://scripts/ink_paper.gd")
 const PrologueArt := preload("res://scripts/prologue_art.gd")
+const Story := preload("res://scripts/story_script.gd")
+const Training := preload("res://scripts/training.gd")
 const INK := "#273831"
 const MUTED := "#554e40"
 const GOLD := "#78501d"
@@ -16,11 +18,10 @@ const BORDER := "#a79c82"
 const PANEL := "#f7f0dfed"
 const PARCHMENT := "#fff7e5"
 const WASH := "#eee4cb"
-const PROLOGUE := [
-	["村口的烂尾车站", "周伯望着村口：“小满今年又回不来。路不通，人就不回来。先种点菜！”"],
-	["粮仓里的账", "周伯记下本钱，也数了数鸡。菜地和鸡舍是村里眼下能着手打理的两样活儿。"],
-	["从菜地开始", "天亮了。周伯把账本带上，先去开一块菜地，再到鸡舍看看老陈。"],
-]
+const PORTRAITS := {
+	"周伯": preload("res://portraits/zhou.png"),
+	"周小满": preload("res://portraits/xiaoman.png"),
+}
 
 var village := Village.new()
 var board: Control
@@ -31,12 +32,17 @@ var paper_texture: ImageTexture
 
 var prologue: Control
 var prologue_page := -1
+var dialogue_kind := ""
+var dialogue_lines: Array = []
+var dialogue_chapter := ""
+var dialogue_location := -1
 var farm_window_mode := Window.MODE_WINDOWED
 var fullscreen_button: Button
 var game_audio := GameAudio.new()
 var save_status := ""
 var in_game := false
 var saved_game: Village
+var training: Training
 
 
 func _ready() -> void:
@@ -240,53 +246,140 @@ func start_prologue() -> void:
 	if DisplayServer.get_name() != "headless":
 		window.mode = Window.MODE_FULLSCREEN
 	game_audio.play_music("story")
-	show_prologue_page(0)
+	dialogue_kind = "opening"
+	render_dialogue(0)
 
 
-func show_prologue_page(page: int) -> void:
+func render_dialogue(page: int) -> void:
 	clear_prologue_page()
 	prologue_page = page
+	var opening := dialogue_kind == "opening"
+	var ending := dialogue_kind == "ending"
+	var total := Story.OPENING.size() if opening else dialogue_lines.size()
+	var choice_event: bool = dialogue_kind == "event" and Village.EVENTS[village.current_event].size() > 3
+	var choosing := choice_event and page == total
+	var speaker: String
+	var line: String
+	var chapter := dialogue_chapter
+	var location := dialogue_location
+	if opening:
+		var opening_line: Array = Story.OPENING[page]
+		chapter = opening_line[0]
+		location = opening_line[1]
+		speaker = opening_line[2]
+		line = opening_line[3]
+	elif choosing:
+		speaker = "抉择"
+		line = "接下来，周伯要怎么做？"
+	else:
+		speaker = dialogue_lines[page][0]
+		line = dialogue_lines[page][1]
+
 	prologue = Control.new()
 	add_child(prologue)
 	prologue.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var print_art := PrologueArt.new()
-	print_art.chapter = page
-	print_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	prologue.add_child(print_art)
-	print_art.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var page_surface := Control.new()
-	page_surface.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	page_surface.gui_input.connect(on_prologue_art_input)
-	prologue.add_child(page_surface)
-	page_surface.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var art := PrologueArt.new()
+	art.chapter = location
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	prologue.add_child(art)
+	art.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var surface := Control.new()
+	if not choosing:
+		surface.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		surface.gui_input.connect(on_prologue_art_input)
+	prologue.add_child(surface)
+	surface.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	if is_instance_valid(board):
+		board.focus_behavior_recursive = Control.FOCUS_BEHAVIOR_DISABLED
 
-	var skip := button(prologue, Rect2(0, 0, 137, 42), "跳过序章", enter_farm)
-	skip.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	skip.offset_left = -165
-	skip.offset_right = -28
-	skip.offset_top = 26
-	skip.offset_bottom = 68
-	fullscreen_button = button(prologue, Rect2(28, 26, 128, 42), "", toggle_prologue_fullscreen)
-	fullscreen_button.tooltip_text = "也可以按 Esc 切换窗口和全屏。"
-	update_fullscreen_label()
+	if PORTRAITS.has(speaker):
+		show_portrait(speaker)
+	if opening and page in [2, 3]:
+		show_ticket()
+	if dialogue_kind == "event" and village.current_event == "station_open" and page == 2:
+		bus_animation(prologue)
+	if opening:
+		fullscreen_button = button(prologue, Rect2(28, 26, 128, 42), "", toggle_prologue_fullscreen)
+		fullscreen_button.tooltip_text = "也可以按 Esc 切换窗口和全屏。"
+		update_fullscreen_label()
+	if opening or ending:
+		var skip := button(prologue, Rect2(0, 0, 137, 42), "跳过序章" if opening else "跳到结算", start_training if opening else finish_ending)
+		skip.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		skip.offset_left = -165
+		skip.offset_right = -28
+		skip.offset_top = 26
+		skip.offset_bottom = 68
 
-	var card_height := 225
-	var card_width := 1060
-	var reader := panel(prologue, Rect2(0, 0, card_width, card_height), "#f6eddaef", "#665a45")
+	var height := 252 if choosing else 223
+	var reader := panel(prologue, Rect2(0, 0, 1060, height), "#f6eddaef", "#665a45")
 	reader.mouse_filter = Control.MOUSE_FILTER_STOP
 	reader.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	reader.offset_left = -530
-	reader.offset_right = -530 + card_width
-	reader.offset_top = -card_height - 34
+	reader.offset_right = 530
+	reader.offset_top = -height - 34
 	reader.offset_bottom = -34
-	panel(reader, Rect2(8, 8, card_width - 16, card_height - 16), "#ffffff00", "#b6a584", 0)
-	panel(reader, Rect2(8, 8, card_width - 16, 3), "#465849", "#465849", 0)
-	brush_label(reader, Rect2(32, 20, 378, 28), "序章  %d / %d" % [page + 1, PROLOGUE.size()], 19, RED)
-	brush_label(reader, Rect2(30, 49, 955, 53), PROLOGUE[page][0], 42)
-	paragraph(reader, Rect2(33, 106, 986, 58), PROLOGUE[page][1], 19, INK)
-	label(reader, Rect2(33, 170, 410, 37), "点击画面继续", 14, MUTED)
-	var button_text := "进入河湾村  →" if page == PROLOGUE.size() - 1 else "继续剧情  →"
-	button(reader, Rect2(839, 166, 187, 45), button_text, advance_prologue, true).grab_focus()
+	panel(reader, Rect2(8, 8, 1044, height - 16), "#ffffff00", "#b6a584", 0)
+	panel(reader, Rect2(8, 8, 1044, 3), INK, INK, 0)
+	brush_label(reader, Rect2(35, 22, 953, 26), chapter, 20, RED)
+	if not choosing:
+		label(reader, Rect2(879, 22, 145, 26), "%d / %d" % [page + 1, total], 14, MUTED, HORIZONTAL_ALIGNMENT_RIGHT)
+	brush_label(reader, Rect2(32, 50, 975, 45), speaker, 38)
+	paragraph(reader, Rect2(36, 103, 985, 70), line, 21, INK)
+	if choosing:
+		var entry: Array = Village.EVENTS[village.current_event]
+		for choice in 2:
+			button(reader, Rect2(34 + 502 * choice, 155, 487, 43), entry[3 + choice], resolve_story_choice.bind(choice), choice == 0, village.coins < entry[5 + choice])
+		if village.coins < entry[5] and village.coins < entry[6]:
+			button(reader, Rect2(784, 203, 239, 32), "暂缓处理 · 声望 −2", resolve_story_choice.bind(2)).grab_focus()
+		return
+
+	label(reader, Rect2(36, 167, 425, 37), "点击画面继续", 14, MUTED)
+	if page > 0:
+		button(reader, Rect2(697, 165, 119, 43), "上一句", turn_dialogue.bind(-1))
+	var next_text := "继续剧情  →"
+	if page == total - 1:
+		if opening:
+			next_text = "开始新手教程  →"
+		elif ending:
+			next_text = "查看结算  →"
+		else:
+			next_text = "作出选择  →" if choice_event else "继续经营  →"
+	button(reader, Rect2(837, 165, 187, 43), next_text, turn_dialogue.bind(1), true).grab_focus()
+
+
+func show_portrait(speaker: String) -> void:
+	var left := speaker == "周伯"
+	var portrait := panel(prologue, Rect2(0, 0, 310, 453), "#f3ead7", "#8e8064")
+	portrait.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	portrait.offset_left = -530 if left else 220
+	portrait.offset_right = portrait.offset_left + 310
+	portrait.offset_top = -740
+	portrait.offset_bottom = -287
+	var picture := TextureRect.new()
+	picture.texture = PORTRAITS[speaker]
+	picture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	picture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	picture.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	picture.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var print_material := CanvasItemMaterial.new()
+	print_material.blend_mode = CanvasItemMaterial.BLEND_MODE_MUL
+	picture.material = print_material
+	place(picture, portrait, Rect2(8, 8, 294, 437))
+	portrait.position.y += 7
+	portrait.create_tween().tween_property(portrait, "position:y", portrait.position.y - 7, 0.23)
+
+
+func show_ticket() -> void:
+	var ticket := panel(prologue, Rect2(0, 0, 258, 135), "#f0e0bf", "#8e8064")
+	ticket.set_anchors_preset(Control.PRESET_CENTER)
+	ticket.offset_left = -129
+	ticket.offset_right = 129
+	ticket.offset_top = -85
+	ticket.offset_bottom = 50
+	panel(ticket, Rect2(0, 0, 258, 7), CINNABAR, CINNABAR, 0)
+	brush_label(ticket, Rect2(21, 18, 213, 51), "返程车票", 33)
+	panel(ticket, Rect2(22, 77, 214, 1), BORDER, BORDER, 0)
+	label(ticket, Rect2(22, 89, 214, 28), "小满发来的照片", 15, MUTED)
 
 
 func clear_prologue_page() -> void:
@@ -294,17 +387,54 @@ func clear_prologue_page() -> void:
 		remove_child(prologue)
 		prologue.queue_free()
 		prologue = null
+		if is_instance_valid(board):
+			board.focus_behavior_recursive = Control.FOCUS_BEHAVIOR_INHERITED
 
 
 func on_prologue_art_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		game_audio.click()
-		advance_prologue()
+		turn_dialogue(1)
 
 
-func advance_prologue() -> void:
-	if prologue_page < PROLOGUE.size() - 1:
-		show_prologue_page(prologue_page + 1)
+func turn_dialogue(step: int) -> void:
+	var next := prologue_page + step
+	var total := Story.OPENING.size() if dialogue_kind == "opening" else dialogue_lines.size()
+	if next >= total:
+		match dialogue_kind:
+			"opening":
+				start_training()
+				return
+			"ending":
+				finish_ending()
+				return
+			"event":
+				if Village.EVENTS[village.current_event].size() == 3:
+					resolve_story_choice(0)
+					return
+	if in_game:
+		village.story_page = next
+		write_save()
+	render_dialogue(next)
+
+
+func resolve_story_choice(choice: int) -> void:
+	clear_prologue_page()
+	perform(village.resolve_event.bind(choice))
+
+func start_training(from_farm: bool = false) -> void:
+	close_modal()
+	clear_prologue_page()
+	get_window().content_scale_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
+	game_audio.play_music("farm")
+	training = Training.new(self, from_farm)
+	training.show_step()
+
+
+func finish_training(from_farm: bool) -> void:
+	training = null
+	if from_farm:
+		refresh()
 	else:
 		enter_farm()
 
@@ -336,7 +466,7 @@ func update_fullscreen_label() -> void:
 
 
 func _unhandled_key_input(event: InputEvent) -> void:
-	if is_instance_valid(prologue) and event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+	if dialogue_kind == "opening" and is_instance_valid(prologue) and event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
 		get_viewport().set_input_as_handled()
 		toggle_prologue_fullscreen()
 
@@ -405,7 +535,7 @@ func refresh() -> void:
 	panel(board, Rect2(48, 818, 1344, 1), BORDER, BORDER, 0)
 	label(board, Rect2(49, 837, 870, 36), village.journal[0], 14, MUTED)
 	var fast := button(board, Rect2(966, 834, 224, 43), "快进到下一事项  »", perform.bind(village.advance_to_next))
-	fast.tooltip_text = "最多 30 天。遇到收获、孵化、养殖产出、月初或剧情会停下。"
+	fast.tooltip_text = "最多快进 30 天。逐日结算作物、养殖、游客、电商和事件。遇到下一项重要事项时停止。"
 	button(board, Rect2(1203, 834, 189, 43), "结束今天  →", perform.bind(village.advance_day), true)
 
 
@@ -636,6 +766,7 @@ func show_guide() -> void:
 	var frame := modal("如何经营河湾村", "村庄账本", 382)
 	paragraph(frame, Rect2(32, 119, 596, 181), "开垦、播种、收获各花 1 劳力。开局步行卖货每次花 2 劳力，修好车站即可免去这笔消耗。\n\n鸡蛋可以摸走卖钱，也可留在鸡舍孵化。其它养殖随月份解锁。\n\n第 24 月末评定结局。快进会在成熟、孵化、养殖产出、月初或剧情发生时停下。", 16, INK)
 	button(frame, Rect2(481, 315, 147, 41), "返回村庄", close_modal).grab_focus()
+	button(frame, Rect2(272, 315, 190, 41), "重玩新手教程", start_training.bind(true))
 
 
 func show_endings_guide() -> void:
@@ -678,23 +809,20 @@ func show_pending_event() -> void:
 
 
 func show_event() -> void:
-	var id: String = village.current_event
+	var id := village.current_event
 	var entry: Array = Village.EVENTS[id]
-	var frame := modal(entry[0], entry[1], 342)
-	paragraph(frame, Rect2(32, 117, 596, 67), entry[2], 17, INK)
-	if entry.size() == 3:
-		if id == "station_open":
-			bus_animation(frame)
-		button(frame, Rect2(443, 267, 185, 43), "继续经营  →", perform.bind(village.resolve_event.bind(0)), true).grab_focus()
-	else:
-		for choice in 2:
-			button(frame, Rect2(32, 188 + choice * 51, 596, 43), entry[3 + choice], perform.bind(village.resolve_event.bind(choice)), choice == 0, village.coins < entry[5 + choice])
-		if village.coins < entry[5] and village.coins < entry[6]:
-			button(frame, Rect2(443, 291, 185, 32), "暂缓处理 · 声望 −2", perform.bind(village.resolve_event.bind(2))).grab_focus()
-
+	var chapter: Array = Story.CHAPTERS.get(id, [entry[0], -1, [[entry[1], entry[2]]]])
+	dialogue_kind = "event"
+	dialogue_chapter = chapter[0]
+	dialogue_location = chapter[1]
+	dialogue_lines = chapter[2].duplicate()
+	if id == "month18":
+		dialogue_lines.append(Story.MONTH18_HIGH if village.reputation >= 60 else Story.MONTH18_LOW)
+	var last_page := dialogue_lines.size() if entry.size() > 3 else dialogue_lines.size() - 1
+	render_dialogue(clampi(village.story_page, 0, last_page))
 
 func bus_animation(frame: Control) -> void:
-	var road := panel(frame, Rect2(32, 181, 596, 69), WASH, BORDER)
+	var road := panel(frame, Rect2(412, 447, 616, 77), "#e3d6b593", BORDER)
 	road.clip_contents = true
 	panel(road, Rect2(0, 51, 596, 2), BORDER, BORDER, 0)
 	var bus := panel(road, Rect2(-117, 16, 109, 32), "#75846b", GREEN)
@@ -706,18 +834,36 @@ func bus_animation(frame: Control) -> void:
 
 
 func show_ending() -> void:
-	var endings := {
-		"C":["遗憾", "小满接周伯进城。车开远了，周伯回头望着村口的车站，轻轻叹了口气。"],
-		"B":["维持", "周伯和老陈继续在菜地里忙。“慢慢来吧，路修好了，总有希望。”"],
-		"A":["小康", "小满周末常回家帮忙。村里有游客，路上有订单，周伯终于能把一部分活计交给年轻人。"],
-		"S":["圆满", "小满回村了。她和周伯、小林站在村里的新广场上，商量来年把村里的好东西卖到更远的地方。"],
-	}
-	var ending: Array = endings[village.result]
-	var frame := modal("%s · %s" % [village.result, ending[0]], "第 24 月末  /  河湾村", 327)
-	paragraph(frame, Rect2(32, 118, 596, 75), ending[1], 18, INK)
-	label(frame, Rect2(32, 200, 596, 30), "金币 %d  ·  声望 %d  ·  改造 %d 项  ·  青年 %d 人" % [village.coins, village.reputation, village.built.size(), village.youth], 15, MUTED)
-	button(frame, Rect2(283, 255, 152, 45), "返回主菜单", save_and_return)
-	button(frame, Rect2(450, 255, 178, 45), "重新经营  →", restart, true).grab_focus()
+	if village.ending_seen:
+		show_ending_summary()
+		return
+	var chapter: Array = Story.ENDINGS[village.result]
+	dialogue_kind = "ending"
+	dialogue_chapter = "%s结局 · %s" % [village.result, chapter[0]]
+	dialogue_location = chapter[1]
+	dialogue_lines = Story.FINAL_MARKET.duplicate() if village.built.has("station") else [["旁白", "第二十四月最后一天，河湾村迎来了两年的结算。"]]
+	dialogue_lines.append_array(chapter[2])
+	render_dialogue(clampi(village.story_page, 0, dialogue_lines.size() - 1))
+
+
+func finish_ending() -> void:
+	clear_prologue_page()
+	village.ending_seen = true
+	village.story_page = 0
+	write_save()
+	show_ending_summary()
+
+
+func show_ending_summary() -> void:
+	var chapter: Array = Story.ENDINGS[village.result]
+	var frame := modal("%s · %s" % [village.result, chapter[0]], "第 24 月末  /  河湾村", 347)
+	label(frame, Rect2(32, 120, 596, 35), "金币 %d  ·  声望 %d  ·  改造 %d 项  ·  青年 %d 人" % [village.coins, village.reputation, village.built.size(), village.youth], 17)
+	var stations := "已通车" if village.built.has("station") else "待通车"
+	var tourism := "旅游已开启" if village.built.has("pond") else "旅游未开启"
+	var network := "电商已开启" if village.built.has("network") else "电商未开启"
+	label(frame, Rect2(32, 173, 596, 35), "%s  ·  %s  ·  %s" % [stations, tourism, network], 16, MUTED)
+	button(frame, Rect2(283, 269, 152, 45), "返回主菜单", save_and_return)
+	button(frame, Rect2(450, 269, 178, 45), "重新经营  →", restart, true).grab_focus()
 
 
 func restart() -> void:

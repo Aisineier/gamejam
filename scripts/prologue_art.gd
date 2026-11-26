@@ -15,6 +15,9 @@ func _draw() -> void:
 		0: unfinished_station()
 		1: granary()
 		2: ledger()
+		3: station_square()
+		4: village_at_night()
+		5: pond()
 	grain()
 	draw_set_transform(Vector2.ZERO)
 
@@ -112,6 +115,48 @@ func embankment(from: Vector2, to: Vector2) -> void:
 	for stone in 14:
 		var at := from.lerp(to, stone / 14.0)
 		brush(at.x, at.y - 3, at.x + 12, at.y + 17, "#514f40", 4)
+
+
+func station_square() -> void:
+	valley()
+	silhouette([0, 697, 402, 540, 1440, 528, 1440, 900, 0, 900], "#aa9d80")
+	brush(0, 732, 1440, 571, "#d3c7a3", 4.0)
+	house(570, 390, 2.8, "#e1cf9f", "#3d5347")
+	block(521, 530, 418, 15, "#b58b66")
+	block(945, 429, 10, 134, "#584935")
+	block(923, 421, 58, 27, "#a64b39")
+	for stall in 3:
+		var x := float(1081 + stall * 96)
+		block(x, 533, 56, 22, "#6a5740")
+		silhouette([x - 9, 516, x + 12, 486, x + 48, 486, x + 66, 516], "#a95e49")
+
+
+func village_at_night() -> void:
+	valley()
+	block(0, 0, 1440, 900, "#243955a4")
+	disc(1067, 243, 68, "#f3df9e")
+	for star in 38:
+		disc(float(18 + star * 173 % 1380), float(38 + star * 101 % 248), 1.0 + star % 2, "#eee3b5")
+	for lamp in 4:
+		var x := float(540 + lamp * 135)
+		var y := float(510 + lamp * 18)
+		brush(x, y, x, y - 84, "#393e32", 6)
+		disc(x + 8, y - 83, 24, "#ecc47b70")
+		disc(x + 8, y - 83, 9, "#f4cc81")
+
+
+func pond() -> void:
+	valley()
+	silhouette([0, 531, 225, 481, 442, 473, 591, 495, 811, 493, 991, 531, 1182, 558, 1294, 679, 1113, 900, 0, 900], "#7d9a90")
+	for ripple in 52:
+		var x := float(6 + ripple * 109 % 1060)
+		var y := float(531 + ripple * 13 % 320)
+		brush(x, y, x + 29 + ripple % 7 * 9, y, "#eae6bb7a", 2.5)
+	pine(1151, 568, 1.34)
+	pine(1263, 575, 1.18)
+	for reed in 38:
+		var x := float(19 + reed * 37 % 1267)
+		brush(x, 540 + reed % 5 * 4, x - 7, 519 + reed % 7 * 3, "#576b49", 2)
 
 
 func granary() -> void:

@@ -29,8 +29,30 @@ const SAVE_FIELDS := [
 	"built", "machine_level", "auto_orders", "tourism_bonus", "irrigation",
 	"drought_until", "stream_days", "extra_risk", "dry_run", "monthly_dry_peak",
 	"tutorial", "pond_unlocked", "done", "event_queue", "current_event", "result", "journal",
+	"story_page", "ending_seen",
 ]
 const EVENTS := {
+	"first_plot": ["留下来的人", "周伯", ""],
+	"first_harvest": ["第一批青菜", "老陈", ""],
+	"potato_unlock": ["耐放的土豆", "老陈", ""],
+	"pig_unlock": ["添一头小猪", "周伯", ""],
+	"berry_unlock": ["草莓种子", "系统", ""],
+	"berry_market": ["水果店的订单", "水果店老板", ""],
+	"road_open": ["水泥路通车", "司机", ""],
+	"bee_unlock": ["村里的蜂箱", "老陈", ""],
+	"lamps_open": ["路灯亮了", "村民", ""],
+	"square_open": ["文化广场", "小林", ""],
+	"pond_open": ["池塘观景台", "周伯", ""],
+	"camp_open": ["树林露营区", "游客", ""],
+	"cow_unlock": ["养一头牛", "老陈", ""],
+	"year_two": ["第二年", "系统", ""],
+	"month18": ["小满再次来电", "周小满", ""],
+	"daughter_a": ["留下来", "周伯", ""],
+	"daughter_b": ["小满的资助", "周小满", ""],
+	"drought_b": ["灌溉设施", "周伯", ""],
+	"conflict_a": ["村民大会", "旁白", ""],
+	"conflict_b": ["共同过日子", "周伯", ""],
+	"stream_b": ["重新开播", "小林", ""],
 	"eggs": ["鸡舍旁", "老陈", "老周，鸡蛋留三天能孵出小鸡，卖得贵！但要是运气不好，蛋就坏了。"],
 	"walk": ["菜地", "老陈", "菜种得不错，但去镇上走路得大半天，菜都蔫了。步行卖货每趟消耗 2 点劳力，只能卖到原价的九成。"],
 	"station_goal": ["烂尾车站", "周伯", "要是这车站修好，小满回家就方便了，菜也能卖上价。修葺车站需要 500 金币。"],
@@ -76,6 +98,8 @@ var done := {}
 var event_queue: Array[String] = []
 var current_event := ""
 var result := ""
+var story_page := 0
+var ending_seen := false
 var journal: Array[String] = []
 var rng := RandomNumberGenerator.new()
 
@@ -111,7 +135,7 @@ func restore_state(state: Dictionary) -> bool:
 	var validated := {}
 	for field in SAVE_FIELDS:
 		var original: Variant = get(field)
-		var candidate: Variant = state.get(field)
+		var candidate: Variant = state.get(field, original) if field in ["story_page", "ending_seen"] else state.get(field)
 		if typeof(original) != typeof(candidate):
 			return false
 		if original is Array:
@@ -189,14 +213,13 @@ func check_story() -> void:
 	if built.has("station"):
 		if coins >= 1000:
 			queue_once("recognition")
-		if coins >= 3000:
-			queue_once("homecoming")
 		if month() >= 10:
 			queue_once("tourism")
-		if month() >= 13 and reputation >= 60 and built.has("square"):
-			queue_once("youth")
+	if month() >= 21 and (reputation >= 60 or built.has("square")):
+		queue_once("youth")
 	if current_event.is_empty() and not event_queue.is_empty():
 		current_event = event_queue.pop_front()
+		story_page = 0
 
 
 func plot_ready(index: int) -> bool:
@@ -211,7 +234,7 @@ func clear_plot(index: int) -> void:
 	log_entry("开垦了第 %d 块菜地。" % (index + 1))
 	if tutorial == 0:
 		tutorial = 1
-		queue_once("eggs")
+		queue_once("first_plot")
 		check_story()
 
 
@@ -237,6 +260,11 @@ func harvest(index: int) -> void:
 	stock[item] += amount
 	plots[index]["crop"] = ""
 	log_entry("收获%s %d 份。" % [CROPS[item][0], amount])
+	if item == "greens":
+		queue_once("first_harvest")
+	elif item == "berry":
+		queue_once("berry_market")
+	check_story()
 
 
 func feed_chickens() -> void:
@@ -246,6 +274,8 @@ func feed_chickens() -> void:
 	fed_chickens = true
 	eggs_in_nest += hens
 	log_entry("喂了鸡群，鸡窝新增 %d 枚蛋。" % hens)
+	queue_once("eggs")
+	check_story()
 
 
 func gather_eggs() -> void:
@@ -355,6 +385,8 @@ func sell(id: String, quantity: int) -> void:
 		stock[id] -= quantity
 	coins += earnings
 	log_entry("售卖%s %d 份，收入 %d 金币。" % [PRODUCT_NAMES[id], quantity, earnings])
+	if not built.has("station"):
+		queue_once("walk")
 	check_story()
 
 
@@ -398,9 +430,17 @@ func build(id: String) -> void:
 			queue_once("station_open")
 		"lamps":
 			labor += 1
+			queue_once("lamps_open")
+		"road":
+			queue_once("road_open")
 		"square":
 			change_rep(15)
 			youth += 1
+			queue_once("square_open")
+		"pond":
+			queue_once("pond_open")
+		"camp":
+			queue_once("camp_open")
 		"network":
 			queue_once("network")
 		"machine":
@@ -451,10 +491,15 @@ func advance_day() -> bool:
 	monthly_dry_peak = maxi(monthly_dry_peak, dry_run)
 	if day == DAYS:
 		result = ending_tier()
+		story_page = 0
 		return true
 	if day % 30 == 0:
 		monthly_events()
 	day += 1
+	if (day - 1) % 30 == 0:
+		var milestone: String = {2:"potato_unlock", 3:"pig_unlock", 4:"berry_unlock", 6:"bee_unlock", 10:"cow_unlock", 13:"year_two", 18:"month18"}.get(month(), "")
+		if not milestone.is_empty():
+			queue_once(milestone)
 	reset_labor()
 	fed_chickens = false
 	var arrived := yield_ready_stock()
@@ -489,9 +534,8 @@ func resolve_event(choice: int) -> void:
 			resolve_branch(current_event, choice)
 	else:
 		match current_event:
-			"eggs":
-				tutorial = 2
-				queue_once("walk")
+			"first_plot", "eggs":
+				tutorial = maxi(tutorial, 2)
 			"station_open":
 				tutorial = 3
 			"recognition":
@@ -502,6 +546,7 @@ func resolve_event(choice: int) -> void:
 				youth += 1
 		log_entry("剧情 · %s。" % entry[0])
 	current_event = ""
+	story_page = 0
 	check_story()
 
 
@@ -532,6 +577,9 @@ func resolve_branch(id: String, choice: int) -> void:
 			if not first:
 				tourism_bonus += 10
 	log_entry("已处理「%s」· %s。" % [EVENTS[id][0], EVENTS[id][3 + choice].get_slice(" · ", 0)])
+	var aftermath: Array = {"daughter": ["daughter_a", "daughter_b"], "drought": ["", "drought_b"], "conflict": ["conflict_a", "conflict_b"], "stream": ["", "stream_b"]}.get(id, ["", ""])
+	if not aftermath[choice].is_empty():
+		event_queue.push_front(aftermath[choice])
 
 
 func ending_tier() -> String:
