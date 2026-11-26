@@ -1,0 +1,4 @@
+.godot/
+*.translation
+/dist/*
+!/dist/MaisuiYuhui-Village.exe
